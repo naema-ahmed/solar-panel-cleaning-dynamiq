@@ -1,72 +1,60 @@
-# Dynamiq solar cleaning planner
+# Dynamiq report aligned Streamlit app
 
-A Streamlit interface for the supplied constant-weather dust accumulation and economic cleaning model. Includes all 16 report scenarios, custom inputs, interactive charts, whole-day scheduling, comparison tables and CSV downloads.
+This revision keeps the previous teal layout but limits the app to the supplied report and `dynamiq_code.py`.
 
-## Run locally
+## What to replace
 
-Use Python 3.10 or newer. In a terminal, open this folder and run:
+Replace `app.py`, `model.py`, `requirements.txt`, `test_model.py` and this README. The `.streamlit/config.toml` theme is unchanged.
 
-```bash
-python -m venv .venv
-```
+`requirements.txt` now includes SymPy because this revision uses the symbolic integration and differentiation from the uploaded script. After replacing the files, install the requirements again.
 
-Activate the environment:
+## Run
 
-- Windows PowerShell: `.venv\Scripts\Activate.ps1`
-- macOS/Linux: `source .venv/bin/activate`
-
-Then:
+Use Python 3.10 or newer. In this folder:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Open the local URL printed by Streamlit. The config file in `.streamlit/` supplies the light teal theme; run from this folder so Streamlit finds it.
+For a virtual environment, run `python -m venv .venv`, then activate `.venv\Scripts\Activate.ps1` in Windows PowerShell or `source .venv/bin/activate` on macOS/Linux before installing packages.
 
-## Files
+## Tabs
 
-- `app.py`: interface, charts, scenario comparison and exports.
-- `model.py`: reusable mathematical functions and the original 16 preset values.
-- `requirements.txt`: packages to install.
-- `.streamlit/config.toml`: visual theme.
-- `test_model.py`: mathematical regression and edge-case checks. Run `python -m unittest test_model -v`.
+- **Your results**: the uploaded script's selected interval, average daily cost and continuous stationary point; plots visualize only D(t), E(t) and C(T) from the report.
+- **All 16 scenarios**: the report's exact a/r/E0 combinations, with your submitted common p, K, alpha and H.
+- **Model from the report**: clean-start ODE solution, complete-cleaning reset, energy-yield relationship, revenue-loss rate, cycle cost and FONC/SOSC. No additional model equations are introduced.
 
-## Use
+All six model parameters are editable. H is the upper limit of the original code's [1,H] numerical root search. It does not make the objective an annual total-cost calculation. Results stay associated with the last submitted input values.
 
-1. Select a scenario; preset descriptions explain dust, humidity, wind and solar yield.
-2. Edit any numerical input. All currency inputs are AED; E0 is total kWh/day for the installation.
-3. Set the allowed whole-day cycle lengths and optionally current dust loading.
-4. Select **Run model**. Results stay associated with the last submitted inputs.
-5. Review the daily cost and dust/energy curves, or compare all 16 scenarios and download results.
+## Defaults and method
 
-The all-scenario comparison keeps the 16 preset a, r and E0 combinations, but applies your submitted K, p, alpha and interval bounds. Custom a/r/E0 values affect the selected-case calculation only.
+The original defaults are preserved: p=0.06 AED/kWh, K=1000 AED, alpha=0.017 m²/g, H=365 days, and the report's 16 scenario parameter sets. Each cycle starts clean and requires positive a and r.
 
-## Corrections to the uploaded script
+The core follows the supplied code: SymPy integration and derivatives, Brent root finding, a second derivative test, then comparison of floor/ceiling interval costs using SciPy quadrature. Symbolic expressions and results are cached for responsiveness.
 
-- Uses numerical quadrature of the analytical first-order condition instead of repeated SymPy integration.
-- Distinguishes no finite optimum from an optimum outside the search range. Same signs at day 1 and day 365 do not imply no finite optimum.
-- Tests curvature at the continuous stationary point before choosing the best allowed floor/ceiling day.
-- Reports AED/day, including a nonzero no-cleaning cost, rather than returning a zero cost for missing roots.
-- Supports zero deposition and zero natural removal.
-- The maximum interval is a search bound, not a finite annual planning horizon.
+Two correctness clarifications remain:
 
-The core equations and the default numerical values are unchanged: p=0.06 AED/kWh, K=1000 AED, alpha=0.017 m²/g, and report scenario inputs. SymPy is not required. The no-finite-root decision compares K with the limit of T L(T) minus the accumulated cycle loss; numerical limits may require extra care for extreme inputs near equality.
+1. A missing sign change within [1,H] is reported as **no stationary point found in the search range**, not proof that no finite optimum exists anywhere. No global no-cleaning classifier or no-cleaning-cost equation has been added.
+2. The second derivative is evaluated at the continuous stationary point before rounding, because that is where the SOSC applies. The whole-day choice follows the original cost comparison, with ties choosing the ceiling.
 
-## Current dust and rain
+## Removed from the previous app
 
-The optional current dust input changes the remaining wait under a threshold policy, not the repeating clean-start cost. This assumes a finite selected cycle, unchanged future conditions and complete cleaning. An unusually large initial dust load in a no-scheduled-cleaning case needs a separate finite-horizon assessment.
+- Current dust D0 input, remaining-time estimate and threshold policy.
+- Nonzero-initial-dust and zero-removal extensions.
+- No-cleaning-limit equation, no-cleaning comparison and global existence test.
+- Extra interval lower-bound control and CSV download features.
 
-Rainfall is not simulated or forecast. If a qualifying rain event fully cleans the panels under your report's assumption, enter current dust as zero and rerun. This is not an optimization of an annual weather sequence.
+No rainfall simulation, automatic weather data, partial-cleaning model, or annual optimizer is included. The rainfall rule is discussed in the report, but is not implemented in the supplied Python script and is therefore not an app control.
+
+## Checks
+
+```bash
+python -m unittest test_model -v
+```
+
+Tests verify the report scenario outputs, floor/ceiling choices, search-range status, and agreement of the analytical dust solution with an independent numerical ODE integration. Streamlit and Plotly must be installed to launch the interface.
 
 ## Share online
 
-Upload this folder to a GitHub repository, retaining `.streamlit/config.toml`. In Streamlit Community Cloud, create an app, choose that repository and `app.py`, then deploy. Keep `requirements.txt` next to the entrypoint. Inspect access settings before sharing the resulting URL.
-
-## Important scope
-
-The recommendation minimizes long-run cycle-average cost under a constant scenario. Removal coefficients are illustrative assumptions, not calibrated site measurements. There is no live weather integration, partial-cleaning model, finite-year optimizer, or guarantee of a facility-specific optimum. For other installation sizes, E0 and K must refer to the same installation.
-
-Official setup documentation: https://docs.streamlit.io/get-started/installation/command-line
-
-Official deployment documentation: https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
+Upload this folder to your GitHub repository, retaining `.streamlit/config.toml`. Deploy `app.py` using Streamlit Community Cloud. Keep `requirements.txt` next to it. If the app is already deployed, replacing these files and pushing the commit will let the hosting service rebuild with the updated requirements.
