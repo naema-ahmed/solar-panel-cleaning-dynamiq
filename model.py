@@ -1,7 +1,7 @@
 """Report-aligned model adapted from the uploaded dynamiq_code.py.
 
 Only the constant-scenario, fully effective cleaning calculation is implemented.
-The numerical bracket is [1, H]; H does not turn C(T) into an annual objective.
+The numerical bracket is [lower, H]; H does not turn C(T) into an annual objective.
 """
 from dataclasses import dataclass
 from functools import lru_cache
@@ -82,33 +82,34 @@ def symbolic_cost(params):
     return T,c,c1,c2
 
 
-def optimize(params, H=365):
+def optimize(params, H=365, lower=1):
     """Brent root search + SOSC + whole-day floor/ceiling cost comparison.
 
     A missing bracket is reported only as a search-range result. It is not
     mislabelled as proof that no finite optimum exists over all positive T.
     """
     params.validate()
-    if not math.isfinite(H) or int(H)!=H or H<2:
-        raise ValueError('The search upper limit H must be a whole number of at least 2 days.')
+    if (not math.isfinite(H) or not math.isfinite(lower)
+        or int(H)!=H or int(lower)!=lower or lower<1 or H<=lower):
+        raise ValueError('Use whole-day bounds with 1 ≤ lower bound < upper bound.')
     T,_,c1,c2=symbolic_cost(params)
     derivative=lambda value:float(c1.subs(T,value).evalf())
-    low,high=derivative(1),derivative(H)
+    low,high=derivative(lower),derivative(H)
     if not math.isfinite(low) or not math.isfinite(high):
         raise ValueError('The derivative could not be evaluated for these inputs.')
     if low==0:
-        root=1.0
+        root=float(lower)
     elif high==0:
         root=float(H)
     elif (low>0)==(high>0):
         return Result('not_bracketed',None,None,None,None)
     else:
-        root=float(brentq(derivative,1,H))
+        root=float(brentq(derivative,lower,H))
     # The SOSC belongs at the stationary point, before rounding it.
     curvature=float(c2.subs(T,root).evalf())
     if curvature<=0:
         return Result('sosc_not_positive',root,None,None,curvature)
-    floor=max(1,int(np.floor(root)))
+    floor=max(int(lower),int(np.floor(root)))
     ceil=min(int(H),int(np.ceil(root)))
     cost_floor=average_cost(floor,params)
     cost_ceil=average_cost(ceil,params)

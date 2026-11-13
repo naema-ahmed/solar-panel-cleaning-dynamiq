@@ -26,16 +26,16 @@ div[data-testid="stSidebar"] { border-right:1px solid #e1e8ed; }
 
 
 @st.cache_data(show_spinner=False)
-def calculate(params,H):
-    return optimize(params,H)
+def calculate(params,H,lower):
+    return optimize(params,H,lower)
 
 
 @st.cache_data(show_spinner=False)
-def comparison(p,K,alpha,H):
+def comparison(p,K,alpha,H,lower):
     records=[]
     for name,row in SCENARIOS.items():
         params=Parameters(a=row['a'],r=row['r'],E0=row['E0'],p=p,K=K,alpha=alpha)
-        result=optimize(params,H)
+        result=optimize(params,H,lower)
         message={'minimum':'Minimum found',
                  'not_bracketed':'No stationary point found in search range',
                  'sosc_not_positive':'Second derivative test not positive'}[result.status]
@@ -83,23 +83,25 @@ with st.sidebar:
                           help='The cleaning cost must refer to the same installation as E₀.')
         alpha=st.number_input('Energy yield sensitivity α · m²/g',min_value=.000001,max_value=10.0,
                               value=.017,step=.001,format='%.6f',key='report_alpha')
+        lower=st.number_input('Search lower bound · days',min_value=1,max_value=36499,value=1,key='report_lower',
+                              help='Earliest cleaning interval included in the numerical root search.')
         H=st.number_input('Search upper limit H · days',min_value=2,max_value=36500,value=365,key='report_H',
-                          help='The uploaded code searches C′(T)=0 between day 1 and day H. This does not calculate an annual total-cost objective.')
+                          help='The code searches C′(T)=0 between the selected lower bound and H. This does not calculate an annual total-cost objective.')
         submitted=st.form_submit_button('Run model',type='primary',use_container_width=True)
     st.caption('Each cycle starts clean: D(0)=0. Cleaning is fully effective, and weather inputs stay constant within a scenario.')
 
 
-if submitted or 'report_run_v2' not in st.session_state:
+if submitted or 'report_run_v3' not in st.session_state:
     candidate=Parameters(a=a,r=r,E0=E0,p=p,K=K,alpha=alpha)
     try:
         with st.spinner('Calculating the optimal cleaning interval…'):
-            outcome=calculate(candidate,H)
+            outcome=calculate(candidate,H,lower)
     except (ValueError,OverflowError,ArithmeticError,TypeError) as exc:
         st.error(f'Please check the inputs: {exc}')
         st.stop()
-    st.session_state['report_run_v2']=(candidate,H,preset,outcome)
+    st.session_state['report_run_v3']=(candidate,lower,H,preset,outcome)
 
-params,search_limit,saved_preset,result=st.session_state['report_run_v2']
+params,search_lower,search_limit,saved_preset,result=st.session_state['report_run_v3']
 st.markdown('<div class="eyebrow">D Y N A M I Q</div>',unsafe_allow_html=True)
 st.markdown('<div class="hero-title">A clearer time to clean.</div>',unsafe_allow_html=True)
 st.markdown('<div class="hero-copy">Compare cleaning expenditure with energy revenue lost to dust, using the model and scenarios from our report.</div>',unsafe_allow_html=True)
@@ -109,7 +111,7 @@ st.caption('Results use the last submitted inputs. Select Run model after making
 if result.status=='minimum':
     st.success(f'Under this constant scenario, the selected whole-day cleaning interval is {result.recommended_days} days.')
 elif result.status=='not_bracketed':
-    st.info(f'No stationary point was found between 1 and {search_limit:,} days. '
+    st.info(f'No stationary point was found between {search_lower:,} and {search_limit:,} days. '
             'This search alone does not establish that there is no finite optimum outside the range.')
 else:
     st.warning('A stationary point was found, but the second derivative test did not confirm a strict minimum.')
@@ -117,7 +119,7 @@ else:
 c1,c2,c3=st.columns(3)
 c1.metric('Selected cleaning interval',f'{result.recommended_days} days' if result.recommended_days else 'Not found')
 c2.metric('Cost at selected interval · AED/day',f'{result.daily_cost:,.2f}' if result.daily_cost is not None else '—')
-c3.metric('Continuous stationary point · days',f'{result.continuous_days:.3f}' if result.continuous_days is not None else '—')
+c3.metric('Stationary point · days (rounded)',f'{result.continuous_days:.0f}' if result.continuous_days is not None else '—')
 
 overview,all_cases,details=st.tabs(['Your results','All 16 scenarios','Model from the report'])
 
@@ -126,7 +128,7 @@ with overview:
         st.caption(f'Second derivative at the continuous stationary point: {result.second_derivative:.6g} AED/day³, which is positive. '
                    'The selected whole-day interval has the lower cost of the allowed floor and ceiling choices.')
     st.markdown('#### Average daily cost versus cleaning interval')
-    grid=np.unique(np.r_[np.geomspace(1,search_limit,120),result.recommended_days or 1])
+    grid=np.unique(np.r_[np.geomspace(search_lower,search_limit,120),result.recommended_days or search_lower])
     values=[average_cost(float(T),params) for T in grid]
     fig=go.Figure(go.Scatter(x=grid,y=values,mode='lines',line=dict(color='#087e78',width=3)))
     if result.recommended_days:
@@ -153,14 +155,19 @@ with overview:
 
 with all_cases:
     st.markdown('#### Compare the report scenarios')
-    st.caption('Uses the original 16 sets of a, r and E₀ with the last submitted shared p, K, α and H. '
+    st.caption('Uses the original 16 sets of a, r and E₀ with the last submitted shared p, K, α and search bounds. '
                'Edits to a, r or E₀ affect only the selected-case calculation above.')
     try:
         with st.spinner('Calculating the 16 report scenarios…'):
-            frame=comparison(params.p,params.K,params.alpha,search_limit)
-        st.dataframe(frame,hide_index=True,use_container_width=True,height=610,
-                     column_config={name:st.column_config.NumberColumn(format='%.2f') for name in
-                                    ['Continuous T* (days)','Cost at chosen interval (AED/day)']})
+            frame=comparison(params.p,params.K,params.alpha,search_limit,search_lower)
+        # Format only the display copy: the model keeps numerical values and full precision.
+        display=frame.copy()
+        formats={'Continuous T* (days)':'.0f','Chosen interval (days)':'.0f',
+                 'Cost at chosen interval (AED/day)':'.2f'}
+        for column,fmt in formats.items():
+            display[column]=frame[column].map(lambda value,f=fmt:'—' if pd.isna(value) else format(value,f))
+        display=display.rename(columns={'Continuous T* (days)':'Continuous T* (days, rounded)'})
+        st.dataframe(display,hide_index=True,use_container_width=True,height=610)
     except (ValueError,OverflowError,ArithmeticError,TypeError) as exc:
         st.error(f'The comparison could not be calculated: {exc}')
 
@@ -177,7 +184,7 @@ with details:
     st.latex(r'C(T)=\frac{K}{T}+\frac{pE_0}{T}\int_0^T[1-e^{-\alpha D(t)}]dt')
     st.latex(r"C'(T^*)=0,\qquad C''(T^*)>0")
     st.write('As in the supplied code, SymPy constructs and differentiates the cost expression, '
-             'Brent’s method searches for a stationary point between 1 and H days, and numerical quadrature '
+             'Brent’s method searches for a stationary point between the selected bounds, and numerical quadrature '
              'evaluates the floor and ceiling cleaning intervals. The second derivative is checked at the continuous root.')
     st.markdown('#### Scope of this implementation')
     st.write('The model minimizes average daily cost under sustained scenario conditions. '
@@ -185,9 +192,9 @@ with details:
     st.write('The report assumes a 10 MWp installation, 25° panel tilt, complete cleaning and negligible cleaning downtime. '
              'Tilt is already represented in the preset deposition rates, so it is not an independent control here. '
              'Removal coefficients are assumptions; the fixed settling approximation neglects wind and humidity effects on deposition.')
-    st.write('The report discusses rainfall as a cleaning reset. The supplied script does not simulate rain events, '
-             'so this app does not implement a rainfall input or rainfall scheduler.')
+    st.write('Our report considers rainfall above 3mm as a full cleaning, and neglects lighter rain. Hence, '
+             'this web-app does not include a rain-related parameter input.')
     st.markdown('#### Last submitted inputs')
-    st.json({**asdict(params),'H_search_days':search_limit})
+    st.json({**asdict(params),'lower_search_days':search_lower,'H_search_days':search_limit})
 
 st.caption('Dynamiq · Constant-weather scenario analysis · Results are conditional on the report’s model assumptions.')
