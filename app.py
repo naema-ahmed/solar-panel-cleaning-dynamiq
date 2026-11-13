@@ -105,7 +105,7 @@ params,search_lower,search_limit,saved_preset,result=st.session_state['report_ru
 st.markdown('<div class="eyebrow">D Y N A M I Q</div>',unsafe_allow_html=True)
 st.markdown('<div class="hero-title">A clearer time to clean.</div>',unsafe_allow_html=True)
 st.markdown('<div class="hero-copy">Compare cleaning expenditure with energy revenue lost to dust, using the model and scenarios from our report.</div>',unsafe_allow_html=True)
-st.markdown(f'<span class="pill">{saved_preset} starting preset</span><span class="pill">16 weather scenarios</span><span class="pill">Complete cleaning</span><span class="pill">AED per day</span>',unsafe_allow_html=True)
+st.markdown(f'<span class="pill">{saved_preset} chosen scenario</span><span class="pill">16 weather scenarios</span><span class="pill">Complete, early-morning cleaning</span><span class="pill">AED per day</span>',unsafe_allow_html=True)
 st.caption('Results use the last submitted inputs. Select Run model after making changes.')
 
 if result.status=='minimum':
